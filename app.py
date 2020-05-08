@@ -105,6 +105,75 @@ predictor = dlib.shape_predictor(p)
 
 app = flask.Flask(__name__, template_folder='templates')
 
+def stream_template(template_name, **context):
+    app.update_template_context(context)
+    t = app.jinja_env.get_template(template_name)
+    rv = t.stream(context)
+    rv.enable_buffering(5)
+    return rv
+
+
+def analyse_video(filename):
+    # Setup reading video
+    vidcap = cv2.VideoCapture(filename)
+    success = True
+    frame_count = 1
+    voter_tally = 0
+    X = []
+    print("Evaluating: {}".format(filename))
+    while success and frame_count < 720:
+        success,image = vidcap.read()
+        if not success:
+            break
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        faces = detector(gray, 0)
+        largest_face_size = 0
+
+        for (i, face) in enumerate(faces):
+            # Make the prediction and transfom it to numpy array
+            #face = face.rect
+            shape = predictor(gray, face)
+            shape = face_utils.shape_to_np(shape)
+            size = face.width() * face.height()
+            if largest_face_size < size:
+                largest_face_size = size
+
+                # Mouth region uses these indices for dlib
+                (i, j) = (48, 68)
+                # clone the original image so we can draw on it, then
+                # display the name of the face part on the image
+                clone = image.copy()
+
+                # loop over the subset of facial landmarks, drawing the
+                # specific face part
+                for (x, y) in shape[i:j]:
+                    cv2.circle(clone, (x, y), 1, (0, 0, 255), -1)
+                    (x, y, w, h) = cv2.boundingRect(np.array([shape[i:j]]))
+                    roi = image[y:y + h, x:x + w]
+                    roi = cv2.resize(roi, (224,224))
+        X.append(transforms.ToTensor()(roi))
+
+        if frame_count % 20 == 0:
+            X = torch.stack(X, dim=0)
+            X = X.unsqueeze(0)
+            outputs = lstm(cnn(X.cuda()))
+            _, predicted = torch.max(outputs.data, 1)
+            voter_tally += predicted.sum()
+            X = []
+            print("current voter talley: {}, current frame sequences processed: {}".format(voter_tally, frame_count / 20))
+            current_probability = (voter_tally.item() / (frame_count / 20)) * 100
+            yield flask.render_template('progress.html', processing=str(current_probability))
+        frame_count += 1
+    print(frame_count)
+    print("voter talley: {}".format(voter_tally))
+    if voter_tally < (frame_count / 20) / 2:
+        #fake_vids += 1
+        print("fake: video: {}".format(filename))
+        yield flask.render_template('main.html', result='Fake')
+    else:
+        #real_vids += 1
+        print("real: video: {}".format(filename))
+        yield flask.render_template('main.html', result='Real')
 
 @app.route('/', methods=['GET', 'POST'])
 def main():
@@ -113,64 +182,7 @@ def main():
     if flask.request.method == 'POST':
         url = flask.request.form['url']
         filename = pafy.new(url).getbest().url
-        # Setup reading video
-        vidcap = cv2.VideoCapture(filename)
-        success = True
-        frame_count = 1
-        voter_tally = 0
-        X = []
-        print("Evaluating: {}".format(filename))
-        while success and frame_count < 720:
-            success,image = vidcap.read()
-            if not success:
-                break
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-            faces = detector(gray, 0)
-            largest_face_size = 0
-
-            for (i, face) in enumerate(faces):
-                # Make the prediction and transfom it to numpy array
-                #face = face.rect
-                shape = predictor(gray, face)
-                shape = face_utils.shape_to_np(shape)
-                size = face.width() * face.height()
-                if largest_face_size < size:
-                    largest_face_size = size
-
-                    # Mouth region uses these indices for dlib
-                    (i, j) = (48, 68)
-                    # clone the original image so we can draw on it, then
-                    # display the name of the face part on the image
-                    clone = image.copy()
-
-                    # loop over the subset of facial landmarks, drawing the
-                    # specific face part
-                    for (x, y) in shape[i:j]:
-                        cv2.circle(clone, (x, y), 1, (0, 0, 255), -1)
-                        (x, y, w, h) = cv2.boundingRect(np.array([shape[i:j]]))
-                        roi = image[y:y + h, x:x + w]
-                        roi = cv2.resize(roi, (224,224))
-            X.append(transforms.ToTensor()(roi))
-
-            if frame_count % 20 == 0:
-                X = torch.stack(X, dim=0)
-                X = X.unsqueeze(0)
-                outputs = lstm(cnn(X.cuda()))
-                _, predicted = torch.max(outputs.data, 1)
-                voter_tally += predicted.sum()
-                X = []
-                print("current voter talley: {}".format(voter_tally))
-            frame_count += 1
-        print(frame_count)
-        print("voter talley: {}".format(voter_tally))
-        if voter_tally < (frame_count / 20) / 2:
-            #fake_vids += 1
-            print("fake: video: {}".format(filename))
-            return(flask.render_template('main.html', result='Fake'))
-        else:
-            #real_vids += 1
-            print("real: video: {}".format(filename))
-            return(flask.render_template('main.html', result='Real'))
+        return flask.Response(flask.stream_with_context(analyse_video(filename)))
 
 if __name__ == '__main__':
     app.run()
