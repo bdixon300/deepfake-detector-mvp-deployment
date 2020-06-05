@@ -2,48 +2,8 @@
 <html>
     <head>
         <title>Deepfake Detector</title>
-        <script src="http://code.jquery.com/jquery-latest.js"></script>
-        <style>
-            .searchbar {
-                border: 1px solid grey;
-                border-radius: 5px;
-                height:20px;
-                width: 100%;
-                padding: 2px 23px 2px 30px;
-                outline: 0;
-                background-color: #f5f5f5;
-            }
-            .container {
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                width: 50%;
-                -ms-transform: translate(-50%, -50%);
-                transform: translate(-50%, -50%);
-            }
-        </style>
-        <script>
-            var source = new EventSource("/")
-            source.onmessage = function(event) {
-                alert()
-                if(event.data=100) {
-                    source.close()
-                }
-            }
-        </script>
     </head>
-        {% if result %}
-            <br>
-                <p align="center" style="font-size:50px">Video is {{ result }}</p>
-        {% else %}
-        <div class="container" align="center">
-            <h1 align="center">Deepfake Detector</h1>
-            <form align="center" action="{{ url_for('main') }}" method="POST">
-                <input type="text" id="url" class="searchbar" name="url" placeholder="Enter URL of video"></input>
-                <br>
-                <br>
-                <input type="submit"></input>
-            </form>
-        </div>
-        {% endif %}
+    <div class="container" align="center">
+        <p>Backend template</p>
+    </div>
 </html>
